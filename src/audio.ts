@@ -19,6 +19,9 @@ export class SoundEngine {
   private lastPlayed = new Map<string, number>();
   muted = false;
   private bpm = 104;
+  private curves = new Map<number, Float32Array>();
+  private crackle: AudioBuffer | null = null;
+  private hum: GainNode | null = null;
 
   /** Must be called from a user gesture. */
   start() {
@@ -75,6 +78,7 @@ export class SoundEngine {
   toggleMute() {
     this.muted = !this.muted;
     if (this.ctx) this.master.gain.setTargetAtTime(this.muted ? 0 : 0.8, this.ctx.currentTime, 0.05);
+    if (this.muted) this.setBeams(0);
     return this.muted;
   }
 
@@ -229,13 +233,15 @@ export class SoundEngine {
     o.stop(t + 0.4);
   }
 
-  private noiseHit(t: number, type: BiquadFilterType, freq: number, vol: number, dur: number, out: AudioNode, rev = false) {
+  private noiseHit(t: number, type: BiquadFilterType, freq: number, vol: number, dur: number, out: AudioNode, rev = false, freqEnd = 0, q = 1) {
     const ctx = this.ctx!;
     const src = ctx.createBufferSource();
     src.buffer = this.noise;
     const f = ctx.createBiquadFilter();
     f.type = type;
-    f.frequency.value = freq;
+    f.Q.value = q;
+    f.frequency.setValueAtTime(freq, t);
+    if (freqEnd > 0) f.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
     const g = ctx.createGain();
     this.env(g, t, 0.002, vol, dur);
     src.connect(f).connect(g).connect(out);
@@ -272,7 +278,7 @@ export class SoundEngine {
     return true;
   }
 
-  private tone(type: OscillatorType, f0: number, f1: number, dur: number, vol: number, delay = 0) {
+  private tone(type: OscillatorType, f0: number, f1: number, dur: number, vol: number, delay = 0, out: AudioNode = this.sfx) {
     const ctx = this.ctx!;
     const t = ctx.currentTime + delay;
     const o = ctx.createOscillator();
@@ -281,7 +287,7 @@ export class SoundEngine {
     o.frequency.exponentialRampToValueAtTime(Math.max(f1, 20), t + dur);
     const g = ctx.createGain();
     this.env(g, t, 0.004, vol, dur);
-    o.connect(g).connect(this.sfx);
+    o.connect(g).connect(out);
     o.start(t);
     o.stop(t + dur + 0.05);
   }
@@ -303,15 +309,348 @@ export class SoundEngine {
     this.tone('sine', 3300, 3200, 0.06, 0.08, 0.03);
   }
 
-  shoot(kind: 'dart' | 'zap' | 'rail' | 'boom' | 'laser' | 'big') {
+  /** Legacy entry point, kept so older callers still make a sound. */
+  shoot(kind: 'dart' | 'zap' | 'rail' | 'boom' | 'laser' | 'big', pan = 0) {
     switch (kind) {
-      case 'dart': if (this.ok('dart', 0.06)) this.tone('square', 1400, 500, 0.06, 0.05); break;
-      case 'zap': if (this.ok('zap', 0.08)) { this.tone('sawtooth', 2200, 300, 0.12, 0.05); this.noiseHit(this.ctx!.currentTime, 'highpass', 5000, 0.08, 0.08, this.sfx); } break;
-      case 'rail': if (this.ok('rail', 0.15)) { this.tone('sawtooth', 200, 2400, 0.12, 0.09); this.tone('square', 2400, 80, 0.3, 0.08, 0.12); } break;
-      case 'boom': if (this.ok('boom', 0.15)) { this.noiseHit(this.ctx!.currentTime, 'lowpass', 600, 0.6, 0.4, this.sfx); this.tone('sine', 120, 35, 0.4, 0.5); } break;
-      case 'laser': if (this.ok('laser', 0.25)) this.tone('sawtooth', 600, 650, 0.25, 0.03); break;
-      case 'big': if (this.ok('big', 0.2)) { this.tone('triangle', 900, 200, 0.25, 0.12); this.tone('sine', 1800, 400, 0.2, 0.08); } break;
+      case 'dart': this.dart(pan); break;
+      case 'zap': this.arcane(pan); break;
+      case 'rail': this.railgun(pan); break;
+      case 'boom': this.boulderSmash(1, pan, null); break;
+      case 'laser': this.beamZap(pan, null); break;
+      case 'big': this.jackpot(pan); break;
     }
+  }
+
+  // ---------------- attack sfx ----------------
+  // Each attack has its own synthesized voice. `pan` is -1 (left of screen) to 1 (right).
+
+  private panner(pan: number, rev = 0): AudioNode {
+    const ctx = this.ctx!;
+    const p = ctx.createStereoPanner();
+    p.pan.value = Math.max(-1, Math.min(1, pan)) * 0.8;
+    p.connect(this.sfx);
+    if (rev > 0) {
+      const g = ctx.createGain();
+      g.gain.value = rev;
+      p.connect(g).connect(this.reverb);
+    }
+    return p;
+  }
+
+  private drive(out: AudioNode, amount = 6): AudioNode {
+    const ctx = this.ctx!;
+    let curve = this.curves.get(amount);
+    if (!curve) {
+      curve = new Float32Array(1024);
+      for (let i = 0; i < curve.length; i++) {
+        const x = (i / (curve.length - 1)) * 2 - 1;
+        curve[i] = Math.tanh(x * amount) / Math.tanh(amount);
+      }
+      this.curves.set(amount, curve);
+    }
+    const ws = ctx.createWaveShaper();
+    ws.curve = curve;
+    ws.oversample = '2x';
+    ws.connect(out);
+    return ws;
+  }
+
+  /** Sparse random clicks, the raw material of electric crackle. */
+  private crackleBuf(): AudioBuffer {
+    if (this.crackle) return this.crackle;
+    const ctx = this.ctx!;
+    const b = ctx.createBuffer(1, ctx.sampleRate * 0.6, ctx.sampleRate);
+    const d = b.getChannelData(0);
+    let env = 0;
+    for (let i = 0; i < d.length; i++) {
+      if (Math.random() < 0.004) env = 0.4 + Math.random() * 0.6;
+      env *= 0.985;
+      d[i] = (Math.random() * 2 - 1) * env;
+    }
+    this.crackle = b;
+    return b;
+  }
+
+  private crack(t: number, vol: number, dur: number, out: AudioNode, hp = 1800) {
+    const ctx = this.ctx!;
+    const src = ctx.createBufferSource();
+    src.buffer = this.crackleBuf();
+    src.playbackRate.value = 0.8 + Math.random() * 0.6;
+    const f = ctx.createBiquadFilter();
+    f.type = 'highpass';
+    f.frequency.value = hp;
+    const g = ctx.createGain();
+    this.env(g, t, 0.001, vol, dur);
+    src.connect(f).connect(g).connect(out);
+    src.start(t, Math.random() * 0.2);
+    src.stop(t + dur + 0.05);
+  }
+
+  /** Chain lightning: a sharp snap, a buzzing arc that jumps in pitch, a crackle per hop and a thunder tail. */
+  lightning(jumps: number, pan = 0) {
+    if (!this.ok('lightning', 0.09)) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    const out = this.panner(pan, 0.25);
+    this.noiseHit(t, 'highpass', 3500, 0.55, 0.05, out);
+    // buzzing arc: a sawtooth whose pitch hops around like a sample-and-hold
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    const dur = 0.16 + jumps * 0.05;
+    for (let k = 0; k < dur; k += 0.012) o.frequency.setValueAtTime(90 + Math.random() * 900, t + k);
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 2;
+    bp.frequency.setValueAtTime(2600, t);
+    bp.frequency.exponentialRampToValueAtTime(700, t + dur);
+    const g = ctx.createGain();
+    this.env(g, t, 0.002, 0.16, dur);
+    o.connect(bp).connect(g).connect(this.drive(out, 4));
+    o.start(t);
+    o.stop(t + dur + 0.05);
+    for (let i = 0; i < jumps; i++) this.crack(t + i * 0.045, 0.5 - i * 0.05, 0.09, out);
+    // distant thunder
+    this.noiseHit(t + 0.03, 'lowpass', 260, 0.35, 0.55, out, true, 90);
+  }
+
+  /** Frost: a crystalline tinkle of inharmonic partials, a cold whoosh and a couple of ice cracks. */
+  frost(pan = 0, big = true) {
+    if (!this.ok(big ? 'frost' : 'frostS', big ? 0.12 : 0.18)) return;
+    const t = this.ctx!.currentTime;
+    const out = this.panner(pan, 0.5);
+    const partials = big ? 7 : 3;
+    for (let i = 0; i < partials; i++) {
+      const f = 2200 + Math.random() * 4200;
+      this.tone('sine', f, f * 0.985, 0.25 + Math.random() * 0.35, (big ? 0.06 : 0.04) * (1 - i / (partials + 2)), i * 0.025 + Math.random() * 0.02, out);
+    }
+    this.tone('triangle', 1760, 1740, 0.3, big ? 0.05 : 0.03, 0, out);
+    this.noiseHit(t, 'bandpass', 7000, big ? 0.35 : 0.18, big ? 0.45 : 0.22, out, false, 1600, 1.5);
+    if (big) {
+      for (let i = 0; i < 3; i++) this.noiseHit(t + 0.03 + i * 0.05 + Math.random() * 0.03, 'highpass', 4500, 0.4 - i * 0.1, 0.03, out);
+      this.tone('sine', 300, 140, 0.25, 0.12, 0, out);
+    }
+  }
+
+  boulderLaunch(pan = 0) {
+    if (!this.ok('blaunch', 0.12)) return;
+    const t = this.ctx!.currentTime;
+    const out = this.panner(pan);
+    this.tone('sine', 130, 55, 0.16, 0.35, 0, out);
+    this.noiseHit(t, 'bandpass', 700, 0.35, 0.28, out, false, 180, 2);
+  }
+
+  /** Boulder smash: a driven sub boom, a crunchy noise body, then debris rattling down. */
+  boulderSmash(size: number, pan: number, el: 'H' | 'S' | 'C' | 'D' | null) {
+    if (!this.ok('smash', 0.1)) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    const out = this.panner(pan, 0.35);
+    const boom = ctx.createOscillator();
+    boom.frequency.setValueAtTime(120, t);
+    boom.frequency.exponentialRampToValueAtTime(28, t + 0.5);
+    const bg = ctx.createGain();
+    this.env(bg, t, 0.003, 0.9 * Math.min(1.3, size), 0.55);
+    boom.connect(bg).connect(this.drive(out, 5));
+    boom.start(t);
+    boom.stop(t + 0.65);
+    this.noiseHit(t, 'lowpass', 2200, 0.8, 0.45, out, false, 160);
+    this.noiseHit(t, 'bandpass', 900, 0.4, 0.12, out, false, 0, 0.8);
+    // debris: little bandpassed ticks landing and bouncing
+    for (let i = 0; i < 9; i++) {
+      const dt = 0.12 + Math.random() * 0.7;
+      this.noiseHit(t + dt, 'bandpass', 1400 + Math.random() * 2600, 0.22 * (1 - dt), 0.025, out, false, 0, 4);
+    }
+    if (el === 'C') this.frost(pan, true);
+    else if (el === 'H') this.fireWhoosh(pan);
+    else if (el === 'S') this.bubbles(pan);
+    else if (el === 'D') this.shatter(pan);
+  }
+
+  fireWhoosh(pan = 0) {
+    if (!this.ok('fire', 0.12)) return;
+    const t = this.ctx!.currentTime;
+    const out = this.panner(pan, 0.2);
+    this.noiseHit(t, 'lowpass', 300, 0.5, 0.5, out, false, 2600);
+    this.crack(t + 0.05, 0.25, 0.4, out, 900);
+  }
+
+  bubbles(pan = 0) {
+    if (!this.ok('bubbles', 0.15)) return;
+    const out = this.panner(pan);
+    for (let i = 0; i < 6; i++) {
+      const f = 300 + Math.random() * 500;
+      this.tone('sine', f, f * 2.2, 0.06, 0.08, i * 0.05 + Math.random() * 0.04, out);
+    }
+  }
+
+  shatter(pan = 0) {
+    if (!this.ok('shatter', 0.12)) return;
+    const t = this.ctx!.currentTime;
+    const out = this.panner(pan, 0.4);
+    this.noiseHit(t, 'highpass', 5000, 0.5, 0.12, out);
+    for (let i = 0; i < 6; i++) {
+      const f = 3000 + Math.random() * 4500;
+      this.tone('sine', f, f, 0.15, 0.04, Math.random() * 0.2, out);
+    }
+  }
+
+  /** Bass Drop: a distorted sub sweep with a wub and a slap on top. */
+  bassDrop(pan = 0) {
+    if (!this.ok('bassdrop', 0.2)) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    const out = this.panner(pan, 0.3);
+    const o = ctx.createOscillator();
+    o.frequency.setValueAtTime(180, t);
+    o.frequency.exponentialRampToValueAtTime(34, t + 0.7);
+    const g = ctx.createGain();
+    this.env(g, t, 0.004, 0.9, 0.75);
+    o.connect(g).connect(this.drive(out, 8));
+    o.start(t);
+    o.stop(t + 0.8);
+    // wub: a saw through a wobbling lowpass
+    const w = ctx.createOscillator();
+    w.type = 'sawtooth';
+    w.frequency.value = 55;
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.Q.value = 8;
+    f.frequency.value = 400;
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 9;
+    const lg = ctx.createGain();
+    lg.gain.value = 320;
+    lfo.connect(lg).connect(f.frequency);
+    const wg = ctx.createGain();
+    this.env(wg, t, 0.01, 0.25, 0.55);
+    w.connect(f).connect(wg).connect(out);
+    w.start(t); lfo.start(t);
+    w.stop(t + 0.65); lfo.stop(t + 0.65);
+    this.noiseHit(t, 'highpass', 1200, 0.35, 0.12, out);
+  }
+
+  /** Railgun: a rising charge chirp, a hard crack and a falling metallic tail. */
+  railgun(pan = 0) {
+    if (!this.ok('rail', 0.15)) return;
+    const t = this.ctx!.currentTime;
+    const out = this.panner(pan, 0.3);
+    this.tone('sawtooth', 300, 3200, 0.07, 0.07, 0, out);
+    this.noiseHit(t + 0.07, 'highpass', 2500, 0.7, 0.08, out);
+    this.tone('square', 2600, 70, 0.4, 0.09, 0.07, this.drive(out, 3));
+    this.tone('sine', 90, 30, 0.35, 0.45, 0.07, out);
+    this.tone('sine', 5200, 4800, 0.5, 0.025, 0.08, out);
+  }
+
+  /** Rapid dart: a short pew with random pitch so a stream never sounds like a machine gun loop. */
+  dart(pan = 0) {
+    if (!this.ok('dart', 0.05)) return;
+    const f = 1200 + Math.random() * 600;
+    const out = this.panner(pan);
+    this.tone('square', f, f * 0.3, 0.06, 0.045, 0, out);
+    this.noiseHit(this.ctx!.currentTime, 'highpass', 6000, 0.08, 0.02, out);
+  }
+
+  /** Ricochet hit: a metallic ping with inharmonic partials. */
+  ping(pan = 0) {
+    if (!this.ok('ping', 0.06)) return;
+    const out = this.panner(pan, 0.2);
+    const f = 2400 + Math.random() * 1200;
+    this.tone('sine', f, f * 0.92, 0.18, 0.05, 0, out);
+    this.tone('sine', f * 1.47, f * 1.4, 0.12, 0.03, 0, out);
+  }
+
+  /** Magic bolts: an FM bell that sweeps up. */
+  arcane(pan = 0) {
+    if (!this.ok('arcane', 0.08)) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    const out = this.panner(pan, 0.3);
+    const car = ctx.createOscillator();
+    const mod = ctx.createOscillator();
+    const base = 600 + Math.random() * 200;
+    car.frequency.setValueAtTime(base, t);
+    car.frequency.exponentialRampToValueAtTime(base * 2.2, t + 0.15);
+    mod.frequency.value = base * 1.5;
+    const mg = ctx.createGain();
+    mg.gain.setValueAtTime(base * 2, t);
+    mg.gain.exponentialRampToValueAtTime(10, t + 0.2);
+    mod.connect(mg).connect(car.frequency);
+    const g = ctx.createGain();
+    this.env(g, t, 0.004, 0.08, 0.22);
+    car.connect(g).connect(out);
+    car.start(t); mod.start(t);
+    car.stop(t + 0.3); mod.stop(t + 0.3);
+  }
+
+  /** Short zap at the contact point of a beam, flavored by the suit. */
+  beamZap(pan: number, el: 'H' | 'S' | 'C' | 'D' | null) {
+    if (!this.ok('beamzap', 0.25)) return;
+    const t = this.ctx!.currentTime;
+    const out = this.panner(pan);
+    this.crack(t, 0.18, 0.12, out, 2500);
+    if (el === 'C') this.frost(pan, false);
+    else if (el === 'H') this.noiseHit(t, 'lowpass', 500, 0.2, 0.2, out, false, 1800);
+    else if (el === 'S') this.tone('sine', 400, 900, 0.06, 0.05, 0, out);
+    else if (el === 'D') this.tone('sine', 4200, 4200, 0.1, 0.03, 0, out);
+  }
+
+  /** Continuous laser hum, its loudness follows how many beams are firing. */
+  setBeams(n: number) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    if (!this.hum) {
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = 1100;
+      f.Q.value = 3;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 7;
+      const lg = ctx.createGain();
+      lg.gain.value = 300;
+      lfo.connect(lg).connect(f.frequency);
+      lfo.start();
+      for (const [type, freq] of [['sawtooth', 110], ['sawtooth', 110.8], ['square', 220.5]] as const) {
+        const o = ctx.createOscillator();
+        o.type = type;
+        o.frequency.value = freq;
+        o.connect(f);
+        o.start();
+      }
+      f.connect(g).connect(this.sfx);
+      this.hum = g;
+    }
+    const target = n > 0 && !this.muted ? 0.035 + Math.min(n, 4) * 0.012 : 0;
+    this.hum.gain.setTargetAtTime(target, ctx.currentTime, 0.06);
+  }
+
+  /** Jackpot: a heavy coin smash and a cascade of bright chimes. */
+  jackpot(pan = 0) {
+    if (!this.ok('jackpot', 0.2)) return;
+    const t = this.ctx!.currentTime;
+    const out = this.panner(pan, 0.4);
+    this.tone('triangle', 900, 200, 0.25, 0.12, 0, out);
+    this.tone('sine', 110, 40, 0.3, 0.4, 0, out);
+    this.noiseHit(t, 'bandpass', 4200, 0.3, 0.06, out);
+    [1568, 2093, 2637, 3136].forEach((f, i) => this.tone('sine', f, f, 0.14, 0.06, 0.04 + i * 0.04, out));
+  }
+
+  /** Bright sting for a diamond crit. */
+  crit(pan = 0) {
+    if (!this.ok('crit', 0.1)) return;
+    const out = this.panner(pan, 0.4);
+    this.tone('square', 1760, 1760, 0.06, 0.05, 0, out);
+    this.tone('square', 2637, 2637, 0.12, 0.05, 0.05, out);
+  }
+
+  /** Light physical impact on an enemy. */
+  thud(pan = 0) {
+    if (!this.ok('thud', 0.05)) return;
+    const t = this.ctx!.currentTime;
+    const out = this.panner(pan);
+    this.noiseHit(t, 'bandpass', 1200 + Math.random() * 600, 0.18, 0.04, out, false, 0, 2);
+    this.tone('sine', 220, 90, 0.05, 0.08, 0, out);
   }
 
   kill() {
