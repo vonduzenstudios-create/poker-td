@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tower Gallery</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #12001f; overflow: hidden; font-family: system-ui, sans-serif; }
+      #labels { position: fixed; inset: 0; pointer-events: none; }
+      .lbl { position: absolute; transform: translate(-50%, 0); color: #fdf6ff; font-size: 12px; white-space: nowrap;
+        text-shadow: 0 0 4px #000, 0 0 8px #000; }
+      .row { font-weight: 700; color: #00f0ff; font-size: 14px; }
+      #help { position: fixed; left: 12px; bottom: 10px; color: #b9a6d9; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div id="labels"></div>
+    <div id="help">Dev page: every hand at four card ranks. Drag to orbit, wheel to zoom. ?hand=6 shows one hand up close.</div>
+    <script type="module" src="/src/dev/towerGallery.ts"></script>
+  </body>
+</html>
