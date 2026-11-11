@@ -29,8 +29,9 @@ export class Stage {
   waypoints: THREE.Vector3[] = [];
   private lights: THREE.InstancedMesh;
   private lightCount = 0;
-  private camTarget = new THREE.Vector3(0, 0, 1.5);
-  private camDist = 29;
+  private camTarget = new THREE.Vector3(0, 0, MAP_H * TILE * 0.2);
+  /** Default zoom frames the whole table; the wheel zooms in for detail. */
+  private camDist = Math.max(MAP_W, MAP_H * 1.6) * TILE * 1.08;
   private camYaw = 0;
   private keys = new Set<string>();
   private time = 0;
@@ -48,7 +49,7 @@ export class Stage {
 
     this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.5, 400);
     this.scene.background = skyTexture();
-    this.scene.fog = new THREE.Fog(0x2a0845, 60, 160);
+    this.scene.fog = new THREE.Fog(0x2a0845, 90, 220);
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -63,7 +64,9 @@ export class Stage {
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
     const sc = key.shadow.camera;
-    sc.left = -26; sc.right = 26; sc.top = 18; sc.bottom = -18; sc.near = 1; sc.far = 90;
+    const halfW = (MAP_W * TILE) / 2 + 4;
+    const halfH = (MAP_H * TILE) / 2 + 4;
+    sc.left = -halfW; sc.right = halfW; sc.top = halfH; sc.bottom = -halfH; sc.near = 1; sc.far = 120;
     key.shadow.bias = -0.0008;
     this.scene.add(key);
     const rim = new THREE.DirectionalLight(0x00f0ff, 0.8);
@@ -103,7 +106,7 @@ export class Stage {
     window.addEventListener('resize', () => this.resize());
     this.renderer.domElement.addEventListener('wheel', (e) => {
       e.preventDefault();
-      this.camDist = THREE.MathUtils.clamp(this.camDist + e.deltaY * 0.02, 16, 50);
+      this.camDist = THREE.MathUtils.clamp(this.camDist + e.deltaY * 0.03, 16, MAP_W * TILE * 1.4);
     }, { passive: false });
     window.addEventListener('keydown', (e) => this.keys.add(e.key.toLowerCase()));
     window.addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
@@ -260,15 +263,17 @@ export class Stage {
   }
 
   updateCamera(dt: number) {
-    const pan = 18 * dt;
+    const pan = this.camDist * 0.7 * dt;
     if (this.keys.has('a') || this.keys.has('arrowleft')) this.camTarget.x -= pan;
     if (this.keys.has('d') || this.keys.has('arrowright')) this.camTarget.x += pan;
     if (this.keys.has('w') || this.keys.has('arrowup')) this.camTarget.z -= pan;
     if (this.keys.has('s') || this.keys.has('arrowdown')) this.camTarget.z += pan;
     if (this.keys.has('q')) this.camYaw -= dt;
     if (this.keys.has('e')) this.camYaw += dt;
-    this.camTarget.x = THREE.MathUtils.clamp(this.camTarget.x, -20, 20);
-    this.camTarget.z = THREE.MathUtils.clamp(this.camTarget.z, -14, 14);
+    const limX = (MAP_W * TILE) / 2;
+    const limZ = (MAP_H * TILE) / 2;
+    this.camTarget.x = THREE.MathUtils.clamp(this.camTarget.x, -limX, limX);
+    this.camTarget.z = THREE.MathUtils.clamp(this.camTarget.z, -limZ, limZ);
     const tilt = 0.95; // radians from horizontal-ish, top-down with a lean
     const y = Math.sin(tilt) * this.camDist;
     const back = Math.cos(tilt) * this.camDist;
