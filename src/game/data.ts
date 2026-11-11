@@ -34,25 +34,25 @@ export interface TowerDef {
 }
 
 export const TOWERS: TowerDef[] = [
-  { name: 'Neon Dart', attack: 'single', dmgType: 'phys', damage: 7, rate: 3.2, range: 6.5, count: 1, radius: 0, color: 0xff9a3c,
+  { name: 'Neon Dart', attack: 'single', dmgType: 'phys', damage: 7, rate: 3.2, range: 9, count: 1, radius: 0, color: 0xff9a3c,
     blurb: 'Rapid single-target darts.', highBonus: 'Face card high: +40% attack speed.' },
-  { name: 'Twin Beam', attack: 'single', dmgType: 'phys', damage: 11, rate: 1.9, range: 7, count: 2, radius: 0, color: 0xffb347,
+  { name: 'Twin Beam', attack: 'single', dmgType: 'phys', damage: 11, rate: 1.9, range: 9.5, count: 2, radius: 0, color: 0xffb347,
     blurb: 'Fires an alternating double shot.', highBonus: 'Jacks or better: triple shot.' },
-  { name: 'Ricochet', attack: 'multi', dmgType: 'phys', damage: 16, rate: 1.5, range: 7.5, count: 2, radius: 0, color: 0xffd23f,
+  { name: 'Ricochet', attack: 'multi', dmgType: 'phys', damage: 16, rate: 1.5, range: 10, count: 2, radius: 0, color: 0xffd23f,
     blurb: 'Hits 2 targets at once.', highBonus: 'Jacks or better: 3 targets.' },
-  { name: 'Prism', attack: 'chain', dmgType: 'magic', damage: 22, rate: 1.2, range: 7.5, count: 3, radius: 0, color: 0x7df9ff,
+  { name: 'Prism', attack: 'chain', dmgType: 'magic', damage: 22, rate: 1.2, range: 10, count: 3, radius: 0, color: 0x7df9ff,
     blurb: 'Magic lightning that chains through 3 enemies.', highBonus: 'Jacks or better: 4 jumps.' },
-  { name: 'Railgun', attack: 'pierce', dmgType: 'phys', damage: 90, rate: 0.5, range: 12, count: 1, radius: 0.8, color: 0xff6ec7,
+  { name: 'Railgun', attack: 'pierce', dmgType: 'phys', damage: 90, rate: 0.5, range: 16, count: 1, radius: 0.8, color: 0xff6ec7,
     blurb: 'Slow piercing shot that hits everything in a line.', highBonus: 'Jacks or better: +50% damage vs armor.' },
-  { name: 'Suit Tower', attack: 'splash', dmgType: 'suit', damage: 34, rate: 1.0, range: 8, count: 1, radius: 2.4, color: 0xffffff,
+  { name: 'Suit Tower', attack: 'splash', dmgType: 'suit', damage: 34, rate: 1.0, range: 11, count: 1, radius: 2.4, color: 0xffffff,
     blurb: 'Elemental splash. Its suit picks the element.', highBonus: 'Jacks or better: bigger splash.' },
-  { name: 'Bass Drop', attack: 'pulse', dmgType: 'phys', damage: 85, rate: 0.45, range: 5, count: 1, radius: 5, color: 0xff3df2,
+  { name: 'Bass Drop', attack: 'pulse', dmgType: 'phys', damage: 85, rate: 0.45, range: 7, count: 1, radius: 7, color: 0xff3df2,
     blurb: 'Shockwave that hits every enemy around it.', highBonus: 'Jacks or better: shockwave stuns briefly.' },
-  { name: 'Storm Coil', attack: 'multi', dmgType: 'magic', damage: 38, rate: 2.0, range: 8.5, count: 4, radius: 0, color: 0x9d7bff,
+  { name: 'Storm Coil', attack: 'multi', dmgType: 'magic', damage: 38, rate: 2.0, range: 11.5, count: 4, radius: 0, color: 0x9d7bff,
     blurb: 'Magic bolts at 4 targets.', highBonus: 'Jacks or better: 5 targets.' },
-  { name: 'Laser Array', attack: 'beam', dmgType: 'suit', damage: 130, rate: 1, range: 9, count: 1, radius: 0, color: 0xffffff,
+  { name: 'Laser Array', attack: 'beam', dmgType: 'suit', damage: 130, rate: 1, range: 12.5, count: 1, radius: 0, color: 0xffffff,
     blurb: 'Continuous elemental beam plus its suit effect.', highBonus: 'Always premium.' },
-  { name: 'Jackpot', attack: 'single', dmgType: 'magic', damage: 220, rate: 1.0, range: 10, count: 1, radius: 0, color: 0xffd700,
+  { name: 'Jackpot', attack: 'single', dmgType: 'magic', damage: 220, rate: 1.0, range: 13.5, count: 1, radius: 0, color: 0xffd700,
     blurb: 'Huge magic hits. Towers nearby deal +25% damage.', highBonus: 'Always premium.' },
 ];
 
@@ -108,12 +108,12 @@ export interface EnemyDef {
 }
 
 export const ENEMIES: Record<EnemyKind, EnemyDef> = {
-  runner: { name: 'Chip Runner', hp: 60, speed: 3.0, bounty: 2, resist: null, dodge: 0, shield: 0, size: 0.5 },
-  brute: { name: 'Dice Brute', hp: 340, speed: 1.35, bounty: 6, resist: 'phys', dodge: 0, shield: 0, size: 0.75 },
-  wraith: { name: 'Card Wraith', hp: 180, speed: 2.1, bounty: 5, resist: 'magic', dodge: 0.2, shield: 0, size: 0.6 },
-  coin: { name: 'Coin Swarm', hp: 30, speed: 2.5, bounty: 1, resist: null, dodge: 0, shield: 0, size: 0.32 },
-  guard: { name: 'Roulette Guard', hp: 420, speed: 1.7, bounty: 8, resist: null, dodge: 0, shield: 0.6, size: 0.7 },
-  boss: { name: 'The Pit Boss', hp: 7500, speed: 0.75, bounty: 200, resist: null, dodge: 0, shield: 0, size: 1.6 },
+  runner: { name: 'Chip Runner', hp: 95, speed: 3.75, bounty: 2, resist: null, dodge: 0, shield: 0, size: 0.5 },
+  brute: { name: 'Dice Brute', hp: 540, speed: 1.7, bounty: 6, resist: 'phys', dodge: 0, shield: 0, size: 0.75 },
+  wraith: { name: 'Card Wraith', hp: 290, speed: 2.6, bounty: 5, resist: 'magic', dodge: 0.2, shield: 0, size: 0.6 },
+  coin: { name: 'Coin Swarm', hp: 48, speed: 3.1, bounty: 1, resist: null, dodge: 0, shield: 0, size: 0.32 },
+  guard: { name: 'Roulette Guard', hp: 670, speed: 2.1, bounty: 8, resist: null, dodge: 0, shield: 0.6, size: 0.7 },
+  boss: { name: 'The Pit Boss', hp: 13500, speed: 0.95, bounty: 200, resist: null, dodge: 0, shield: 0, size: 1.6 },
 };
 
 export interface SpawnGroup { kind: EnemyKind; count: number; gap: number; delay?: number }
@@ -138,15 +138,21 @@ export const WAVES: WaveDef[] = [
 
 /** Enemy health grows each wave. */
 export function hpScale(waveIndex: number): number {
-  return 1 + 0.3 * waveIndex;
+  return 1 + 0.36 * waveIndex;
 }
 
-// ---- Map: a grid of tiles with one winding path. Tile (0,0) is top-left. ----
-export const MAP_W = 22;
-export const MAP_H = 14;
+// ---- Map: a grid of tiles with one long path. Tile (0,0) is top-left. ----
+export const MAP_W = 26;
+export const MAP_H = 20;
 export const TILE = 2;
 
-/** Path corners in tile coordinates. Enemies walk from first to last. */
+/**
+ * Path corners in tile coordinates. Enemies walk from first to last.
+ * The "Snake Eyes" layout: the path first snakes down and up through four
+ * columns, then doubles back across the table twice, cutting through those
+ * columns. That makes 7 crossings, so a tower in one of the boxed-in pockets
+ * gets shots at the same enemy three or four times.
+ */
 export const PATH_POINTS: [number, number][] = [
-  [-1, 2], [4, 2], [4, 10], [9, 10], [9, 3], [14, 3], [14, 11], [18, 11], [18, 6], [22, 6],
+  [-1, 2], [4, 2], [4, 17], [10, 17], [10, 2], [16, 2], [16, 17], [22, 17], [22, 6], [1, 6], [1, 13], [26, 13],
 ];
